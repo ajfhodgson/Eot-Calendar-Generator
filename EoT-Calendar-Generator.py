@@ -16,6 +16,8 @@ import google_calendar
 # rather than calculating the EoT for 12:00 GMT on that day.
 
 gmt_eot_weekly_calendar_id = "prgqbrj080r4nb1091nsusl978@group.calendar.google.com"
+daily_gmt_eot_calendar_id = "d81o7gedfsmjakj5qbgp0kobec@group.calendar.google.com"
+
 pivot_dt = dt.datetime(2022,7,1,  12,0,0, tzinfo=dt.timezone.utc)
 window_weeks = 26 # +/-this many weeks around the Sunday on/after the pivot (so window_weeks x 2 + 1 events in total)
 anti_flood_s = 1 # delay between API calls to avoid flooding Google's API
@@ -92,7 +94,7 @@ def create_gcal_event(service, timedate, summary, description):
         'summary' : summary,
         'description' : description,
     }
-    new_event = service.events().insert(calendarId=gmt_eot_weekly_calendar_id, body=event).execute()
+    new_event = service.events().insert(calendarId=daily_gmt_eot_calendar_id, body=event).execute()
     print(f"Gcal event created: {event}", file=open('output.tsv', 'a'))
 
 # ------------- main function -------------------------------------
@@ -136,20 +138,20 @@ print(f"window_end_zs   \t{window_end_zs}", file=open('output.tsv', 'a'))
 existing_event_dates = [] # list of dates of already in-place entries in the window
 if True:
     events_result = gcal_service.events().list(
-            calendarId=gmt_eot_weekly_calendar_id, singleEvents=True, orderBy='startTime').execute()
+            calendarId=daily_gmt_eot_calendar_id, singleEvents=True, orderBy='startTime').execute()
     for event in events_result.get('items', []): # second parameter returns an empty array if nothing to get
         event_zs = event['start'].get('dateTime', event['start'].get('date')) # returns 'datetime' if exists, else 'date'
         if event_zs[:10] < window_start_zs[:10] or event_zs[:10] > window_end_zs[:10]: # ignore time and timezone
             action = 'Delete'
             print(f"Deleting event: {event_zs}, id: {event['id']}, {event['summary']}")
-            gcal_service.events().delete(calendarId=gmt_eot_weekly_calendar_id, eventId=event['id']).execute()
+            gcal_service.events().delete(calendarId=daily_gmt_eot_calendar_id, eventId=event['id']).execute()
             time.sleep(anti_flood_s) # avoid flooding Google's API
         else:
             action = 'Keep'
             existing_event_dates.append(event_zs[:10]) # just the date string, no time or timezone
         print(f"{action}\t Event: {event_zs}, id: {event['id']}, [{event['summary']}]", file=open('output.tsv', 'a'))
 
-for i in range(0, (2 * window_weeks + 1) * 7, 7):  # step in weeks, starting on a Sunday
+for i in range(0, (2 * window_weeks + 1) * 7, 1):  # step in weeks, starting on a Sunday
     date_dt = window_start_dt + dt.timedelta(days=i) # noon
     # Calculate EoT (two methods)
 #    (meridian_dt, eot_string, dec_degrees, dec_string) = time_of_meridian_by_transit(date_dt)
