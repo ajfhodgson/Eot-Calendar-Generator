@@ -48,6 +48,9 @@ def main():
     Shows basic usage of the Google Calendar API.
     Prints the start and name of the next 10 events on the user's calendar.
     """
+
+    print("THIS IS JUST A TEST STUB - ARE YOU RUNNING THE WRONG FILE?")
+
     try:
         service = calendar_login()
         # Call the Calendar API
@@ -67,6 +70,8 @@ def main():
             start = event['start'].get('dateTime', event['start'].get('date'))
             print(event, '\n')
             print(start, event['summary'], '\n\n')
+
+        print("THIS IS JUST A TEST STUB - ARE YOU RUNNING THE WRONG FILE?")
 
     except HttpError as error:
         print('An error occurred: %s' % error)
