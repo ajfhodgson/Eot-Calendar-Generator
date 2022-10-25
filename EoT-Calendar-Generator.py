@@ -1,34 +1,44 @@
 from skyfield.api import Topos, load
 import datetime as dt
 import time
-from icalendar import Calendar, Event
 import google_calendar
 
-# This program builds a Google Calendar containing a series of dates, N weeks either side of a 'pivot date' at daily or
+# This program maintains a Google Calendar containing a series of events, within a user-specified span, at daily or
 # weekly intervals, showing the EoT for each day of interest. 
-# The time of the event is the minute when the sun is overhead Greenwich meridian (i.e. solar noon at the prime meridian)
-# rather than calculating the EoT for 12:00 GMT on that day.
-# First it retrieves all existing events in the calendar, and deletes any that fall outside the desired period.
-# Then it inserts in the calendar any events that are missing.
-# NOTE - the existing events that are inside the period may not match the new ones calculated!
+#
+# The time of the event is the minute when the sun is overhead the Greenwich meridian (i.e. solar noon at the prime meridian, 12:00 + EoT)
+# First it retrieves all existing events in the calendar, to be able to see which ones need adding, changing or deleting.
+# Then for each date in the span of interest, it calculates the EoT (by several methods for comparison), 
+# and looks the date up in the list of existing events, leaving any that match exactly (includng summary and description), 
+# deleting and reinserting any that are different, and inserting any that are absent.
+# Finally it deletes any resundant existing events that were not kept or changed (e.g. when running for a new quarter, removes old events)
+#
+# to execute a 'from scratch' run, execute with a one-day span (will delete all others), before executing with the desired span.
 
+
+# three candidate calendars
 weekly_gmt_eot_calendar_id = "prgqbrj080r4nb1091nsusl978@group.calendar.google.com"
 daily_gmt_eot_calendar_id =  "d81o7gedfsmjakj5qbgp0kobec@group.calendar.google.com"
 test_gmt_eot_calendar_id =   "e8fprgrdgm6nbghkihnui26avc@group.calendar.google.com"
+anti_flood_s = 1 # delay between API calls to avoid flooding Google's API
 
 # parameters for this run:
-pivot_dt = dt.datetime(2023,7,1,  12,0,0, tzinfo=dt.timezone.utc)
-window_weeks = 27 # +/-this many weeks around the Sunday on/after the pivot (so window_weeks x 2 + 1 events in total)
-google_calendar_id = daily_gmt_eot_calendar_id
-interval_days = 1 # 1 for daily, 7 for weekly
-anti_flood_s = 1 # delay between API calls to avoid flooding Google's API
-test_run = True # whether to actually write to the Google Calendar or just show the proposals
-from_scratch = True # if True, delete ALL old events, and add ALL new events, otherwise, delete out of range, add any missing
+
+google_calendar_id = weekly_gmt_eot_calendar_id # which calendar to write to
+window_start_dt = dt.datetime(2022,7,3,  12,0,0, tzinfo=dt.timezone.utc) # should be a Sunday for a weekly run
+window_end_dt   = dt.datetime(2023,6,30, 12,0,0, tzinfo=dt.timezone.utc) # inclusive!
+interval_days = 7 # 1 for daily, 7 for weekly
+test_run = False # whether to actually write to the Google Calendar or just show the proposals
+pretend = '(Pretend)' if test_run else ''
+
+if interval_days == 7 and window_start_dt.weekday() != 6 :
+    print("SURELY YOU WANT WEEKLY EVENTS ON SUNDAYS, NO?")
+    quit()
 
 # ------------- main function -------------------------------------
 
 def main():
-    global pivot_dt, ts, sun, north_pole, greenwich, equator
+    global window_start_dt, window_end_dt, ts, sun, north_pole, greenwich, equator
 
     print(f"\nEquation of Time Calendar Generator")
 
@@ -42,40 +52,33 @@ def main():
 
     gcal_service = google_calendar.calendar_login() # initialise google calendar
 
+    kept = changed = added = deleted = 0
     print(f"EoT Calendar Generator", file=open('output.tsv', 'w'))  # starts a new file, overwrites the old
 
-    # force pivot day to be a Sunday
-    offset_to_sunday = 6 - pivot_dt.weekday() # 0=Mon, 6=Sun
-    pivot_dt = pivot_dt + dt.timedelta(days=offset_to_sunday) # forced to a Sunday
-    window_start_dt = pivot_dt + dt.timedelta(days = -window_weeks*7) # also a Sunday
-    window_end_dt = pivot_dt + dt.timedelta(days = window_weeks*7) # also a Sunday
-
-    window_end_zs = window_end_dt.isoformat()
     window_start_zs = window_start_dt.isoformat()
+    window_end_zs = window_end_dt.isoformat()
     print(f"window_start_zs \t{window_start_zs}", file=open('output.tsv', 'a'))
-    print(f"pivot_zs        \t{pivot_dt.isoformat()}", file=open('output.tsv', 'a'))
     print(f"window_end_zs   \t{window_end_zs}", file=open('output.tsv', 'a'))
 
     # get a list of existing google calendar events
-    existing_event_dates = [] # list of dates of already in-place entries in the window
-
+    existing_event_dates = {} # list of dates of already in-place entries in the window
     events_result = gcal_service.events().list(
-            calendarId=google_calendar_id, singleEvents=True, orderBy='startTime').execute()
-
+            calendarId=google_calendar_id, singleEvents=True, orderBy='startTime', maxResults=500).execute()
     for event in events_result.get('items', []): # second parameter returns an empty array if nothing to get
         event_zs = event['start'].get('dateTime', event['start'].get('date')) # returns 'datetime' if exists, else 'date'
-        if from_scratch or event_zs[:10] < window_start_zs[:10] or event_zs[:10] > window_end_zs[:10]: # ignore time and timezone
-            action = 'Delete'
-            print(f"Deleting event: {'(not really) ' if test_run else ''} {event_zs}, id: {event['id']}, {event['summary']}")
-            if not test_run:
-                gcal_service.events().delete(calendarId=google_calendar_id, eventId=event['id']).execute()
-                time.sleep(anti_flood_s) # avoid flooding Google's API
+        digest = {"id": event['id'], "summ": event['summary'], "desc": event['description']}
+        if event_zs[:10] in existing_event_dates:
+            # WOW! two events in one day - that's not right! Delete this second one immediately!
+            print(f"{pretend} Deleting Duplicated event: {event_zs[:10]}, id: {digest['id']}, {digest['summ']}")
+            deleted += 1
+            if not test_run : # delete old, create new
+                gcal_service.events().delete(calendarId=google_calendar_id, eventId=digest['id']).execute()
         else:
-            action = 'Keep'
-            existing_event_dates.append(event_zs[:10]) # just the date string, no time or timezone
-        print(f"{action}\t Event: {event_zs}, id: {event['id']}, [{event['summary']}]", file=open('output.tsv', 'a'))
+            existing_event_dates[event_zs[:10]] = digest # remember the salient details for comparison later
 
-    for i in range(0, (2 * window_weeks + 1) * 7, interval_days):  # step in weeks, starting on a Sunday
+    span = window_end_dt - window_start_dt # results in a delta time
+    days = span.days
+    for i in range(0, days + 1, interval_days): # for each date of interest
         date_dt = window_start_dt + dt.timedelta(days=i) # noon
         # Calculate EoT (several methods)
         (transit_dt, eot_string, dec_degrees, dec_string) = time_of_meridian_by_transit(date_dt) # rhodesmill method
@@ -90,23 +93,53 @@ def main():
         deb_str = f"Transit method: {transit_eot_s:10.5f}, "
         deb_str += f"Azimuth method: {azim_eot_s:10.5f} ({(transit_eot_s-azim_eot_s):10.5f}s), "
         deb_str += f"HourAng method: {noon_eot_s:10.5f} ({(transit_eot_s-noon_eot_s):10.5f}s). "
-        print(deb_str)
+        print("\t\t" + deb_str)
+
+        # three possibilities:
+        # - no event exists for this date - add this new one
+        # - an event exists, but summary or description is different - delete it and add new
+        # - an event exists, and summary and description match - keep it
+
+        iso_date_time_string = azim_iter_dt.isoformat() # for google calendar API must be strinct ISO format
+        date_time_string = azim_iter_dt.isoformat(sep=' ') # more legible format for printing
+        date_string = date_time_string[:10] # just date part
+        summ = eot_string
+        desc = f"Sun is overhead the Prime Meridian\nSun's declination: {dec_degrees:10.4}° ({dec_string})"
 
         # If this date is not in the existing_event_dates array, then call Google Calendar API to insert the event in calendar
-        date_string = azim_iter_dt.isoformat()[:10] # just date part as string
         if date_string not in existing_event_dates :
-            print(f"Creating event: {'(not really) ' if test_run else ''} {azim_iter_dt.isoformat(sep=' ')}, EoT: {eot_string}, dec: {dec_string}")
+            print(f"{pretend} Creating event: {date_time_string}, EoT: {eot_string}, dec: {dec_string}")
+            added += 1
             if not test_run:
-                create_gcal_event(gcal_service, azim_iter_dt.isoformat(), f"{eot_string}", 
-                    f"Sun is overhead the Prime Meridian\nSun's declination: {dec_degrees:10.4}° ({dec_string})")
+                create_gcal_event(gcal_service, iso_date_time_string, summ, desc)
                 time.sleep(anti_flood_s) # avoid flooding the Google API
         else:
-            # &&ToDo could maybe check that all parameters of the old event match the possible new event, and delete/recreate if not
-            print(f"Keeping event: {date_string} (should be EoT: {eot_string} but not checked)")
-        # end of per-week loop
+            existing = existing_event_dates[date_string]
+            if existing["summ"] == summ and existing["desc"] == desc : # all good!
+                print(f"Keeping event: {date_time_string}, EoT: {eot_string}, dec: {dec_string}")
+                kept += 1
+                del existing_event_dates[date_string] # remove from the list to be deleted at the end
+            else : # exists, but it needs changing
+                print(f"{pretend} Changing event: {date_time_string}, id: {existing['id']}, {existing['summ']} -> {summ}")
+                changed += 1
+                del existing_event_dates[date_string] # remove from the list to be deleted at the end
+                if not test_run : # delete old, create new
+                    gcal_service.events().delete(calendarId=google_calendar_id, eventId=existing['id']).execute()
+                    time.sleep(anti_flood_s) # avoid flooding Google's API
+                    create_gcal_event(gcal_service, iso_date_time_string, summ, desc)
+                    time.sleep(anti_flood_s) # avoid flooding the Google API
+    # end of calculate/create loop
 
-print(f"\nFine.\n")
+    # finally, delete all the redundant existing events
+    for date_string in existing_event_dates : # any that haven't been kept or changed
+        existing = existing_event_dates[date_string]
+        print(f"{pretend} Deleting event: {date_string}, id: {existing['id']}, {existing['summ']}")
+        deleted += 1
+        if not test_run : # delete old, create new
+            gcal_service.events().delete(calendarId=google_calendar_id, eventId=existing['id']).execute()
 
+    print(f"Events added: {added}, changed: {changed}, kept: {kept}, deleted: {deleted}")
+    print(f"\nFine.\n")
 
 # ------------- skyfield astro functions --------------------------
 
