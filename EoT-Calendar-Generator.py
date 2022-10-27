@@ -15,6 +15,9 @@ import google_calendar
 #
 # to execute a 'from scratch' run, execute with a one-day span (will delete all others), before executing with the desired span.
 
+# NOTE - To ensure latest ephemeris, DELETE de421.bsp (16MB) which forces a download of a more recent version
+# moving from 7-May-2020 to 9-Jan-2021 version changed some EoTs by 3 seconds!!!!
+
 
 # three candidate calendars
 weekly_gmt_eot_calendar_id = "prgqbrj080r4nb1091nsusl978@group.calendar.google.com"
@@ -24,11 +27,11 @@ anti_flood_s = 1 # delay between API calls to avoid flooding Google's API
 
 # parameters for this run:
 
-google_calendar_id = weekly_gmt_eot_calendar_id # which calendar to write to
-window_start_dt = dt.datetime(2022,7,3,  12,0,0, tzinfo=dt.timezone.utc) # should be a Sunday for a weekly run
-window_end_dt   = dt.datetime(2023,6,30, 12,0,0, tzinfo=dt.timezone.utc) # inclusive!
-interval_days = 7 # 1 for daily, 7 for weekly
-test_run = False # whether to actually write to the Google Calendar or just show the proposals
+google_calendar_id = daily_gmt_eot_calendar_id # which calendar to write to
+window_start_dt = dt.datetime(2022,1,1,  12,0,0, tzinfo=dt.timezone.utc) # should be a Sunday for a weekly run
+window_end_dt   = dt.datetime(2023,12,31, 12,0,0, tzinfo=dt.timezone.utc) # inclusive!
+interval_days = 1 # 1 for daily, 7 for weekly
+test_run = True # whether to actually write to the Google Calendar or just show the proposals
 pretend = '(Pretend)' if test_run else ''
 
 if interval_days == 7 and window_start_dt.weekday() != 6 :
@@ -95,16 +98,20 @@ def main():
         deb_str += f"HourAng method: {noon_eot_s:10.5f} ({(transit_eot_s-noon_eot_s):10.5f}s). "
         print("\t\t" + deb_str)
 
+        iso_date_time_string = azim_iter_dt.isoformat() # for google calendar API must be strinct ISO format
+        date_time_string = azim_iter_dt.isoformat(sep=' ') # more legible format for printing
+        date_string = date_time_string[:10] # just date part
+        date_value = azim_iter_dt.strftime('%d/%m/%Y') # excel will interpret as a date value
+        summ = eot_string
+        desc = f"Sun is overhead the Prime Meridian\nSun's declination: {dec_degrees:10.4}° ({dec_string})"
+
+        print(f"{date_time_string}\t{date_string}\t{date_value}\t{eot_string}\t{dec_string}", file=open('data.txt', 'a'))
+
         # three possibilities:
         # - no event exists for this date - add this new one
         # - an event exists, but summary or description is different - delete it and add new
         # - an event exists, and summary and description match - keep it
 
-        iso_date_time_string = azim_iter_dt.isoformat() # for google calendar API must be strinct ISO format
-        date_time_string = azim_iter_dt.isoformat(sep=' ') # more legible format for printing
-        date_string = date_time_string[:10] # just date part
-        summ = eot_string
-        desc = f"Sun is overhead the Prime Meridian\nSun's declination: {dec_degrees:10.4}° ({dec_string})"
 
         # If this date is not in the existing_event_dates array, then call Google Calendar API to insert the event in calendar
         if date_string not in existing_event_dates :
