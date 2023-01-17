@@ -24,6 +24,10 @@ def calendar_login():
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
+            # if this fails with 'Credentials Expired' simply 
+            # DELETE C:\Users\andre\Google Drive\Sundials\EoT Calendar Generator\token.json
+            # and re-run the file - it will be recreated.
+            # &&ToDo - trap exception, delete the token.json file and tell user to run the program again
         else:
             flow = InstalledAppFlow.from_client_secrets_file(
                 'credentials.json', SCOPES)

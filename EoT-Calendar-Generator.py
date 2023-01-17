@@ -27,11 +27,18 @@ anti_flood_s = 1 # delay between API calls to avoid flooding Google's API
 
 # parameters for this run:
 
+
 google_calendar_id = daily_gmt_eot_calendar_id # which calendar to write to
-window_start_dt = dt.datetime(2022,1,1,  12,0,0, tzinfo=dt.timezone.utc) # should be a Sunday for a weekly run
+window_start_dt = dt.datetime(2023,1,1,  12,0,0, tzinfo=dt.timezone.utc) # should be a Sunday for a weekly run
 window_end_dt   = dt.datetime(2023,12,31, 12,0,0, tzinfo=dt.timezone.utc) # inclusive!
 interval_days = 1 # 1 for daily, 7 for weekly
-test_run = True # whether to actually write to the Google Calendar or just show the proposals
+
+google_calendar_id = weekly_gmt_eot_calendar_id # which calendar to write to
+window_start_dt = dt.datetime(2023,1,1,  12,0,0, tzinfo=dt.timezone.utc) # should be a Sunday for a weekly run
+window_end_dt   = dt.datetime(2023,12,31, 12,0,0, tzinfo=dt.timezone.utc) # inclusive!
+interval_days = 7 # 1 for daily, 7 for weekly
+
+test_run = False # whether to actually write to the Google Calendar or just show the proposals
 pretend = '(Pretend)' if test_run else ''
 
 if interval_days == 7 and window_start_dt.weekday() != 6 :
