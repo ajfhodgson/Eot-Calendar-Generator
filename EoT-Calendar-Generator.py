@@ -18,6 +18,11 @@ import google_calendar
 # NOTE - To ensure latest ephemeris, DELETE de421.bsp (16MB) which forces a download of a more recent version
 # moving from 7-May-2020 to 9-Jan-2021 version changed some EoTs by 3 seconds!!!!
 
+#&&ToDo - check file date of de421.bsp and token.json, if older than 3 months, delete them.
+#&&ToDo - For the desired span, update booth weekly and daily EoT calendars
+#&&ToDo = calculate start and end dates automatically: if in first half of the year, span is 1-Jan-This to 31-Dec-This (just deletes last year!)
+#&&ToDo = calculate start and end dates automatically: if in second half of year, span is 1-Jul-This to 31-Dec-Next
+
 
 # three candidate calendars
 weekly_gmt_eot_calendar_id = "prgqbrj080r4nb1091nsusl978@group.calendar.google.com"
@@ -26,16 +31,19 @@ test_gmt_eot_calendar_id =   "e8fprgrdgm6nbghkihnui26avc@group.calendar.google.c
 anti_flood_s = 1 # delay between API calls to avoid flooding Google's API
 
 # parameters for this run:
-
+google_calendar_id = weekly_gmt_eot_calendar_id # which calendar to write to
+window_start_dt = dt.datetime(2023,12,31,  12,0,0, tzinfo=dt.timezone.utc) # should be a Sunday for a weekly run
+window_end_dt   = dt.datetime(2024,12,31, 12,0,0, tzinfo=dt.timezone.utc) # inclusive!
+interval_days = 7 # 1 for daily, 7 for weekly
 
 google_calendar_id = daily_gmt_eot_calendar_id # which calendar to write to
-window_start_dt = dt.datetime(2023,1,1,  12,0,0, tzinfo=dt.timezone.utc) # should be a Sunday for a weekly run
-window_end_dt   = dt.datetime(2023,12,31, 12,0,0, tzinfo=dt.timezone.utc) # inclusive!
+window_start_dt = dt.datetime(2024,1,1,  12,0,0, tzinfo=dt.timezone.utc)
+window_end_dt   = dt.datetime(2024,12,31, 12,0,0, tzinfo=dt.timezone.utc) # inclusive!
 interval_days = 1 # 1 for daily, 7 for weekly
 
 google_calendar_id = weekly_gmt_eot_calendar_id # which calendar to write to
-window_start_dt = dt.datetime(2023,1,1,  12,0,0, tzinfo=dt.timezone.utc) # should be a Sunday for a weekly run
-window_end_dt   = dt.datetime(2023,12,31, 12,0,0, tzinfo=dt.timezone.utc) # inclusive!
+window_start_dt = dt.datetime(2023,12,31,  12,0,0, tzinfo=dt.timezone.utc) # should be a Sunday for a weekly run
+window_end_dt   = dt.datetime(2024,12,31, 12,0,0, tzinfo=dt.timezone.utc) # inclusive!
 interval_days = 7 # 1 for daily, 7 for weekly
 
 test_run = False # whether to actually write to the Google Calendar or just show the proposals
@@ -103,7 +111,7 @@ def main():
         deb_str = f"Transit method: {transit_eot_s:10.5f}, "
         deb_str += f"Azimuth method: {azim_eot_s:10.5f} ({(transit_eot_s-azim_eot_s):10.5f}s), "
         deb_str += f"HourAng method: {noon_eot_s:10.5f} ({(transit_eot_s-noon_eot_s):10.5f}s). "
-        print("\t\t" + deb_str)
+#         print("\t\t" + deb_str)
 
         iso_date_time_string = azim_iter_dt.isoformat() # for google calendar API must be strinct ISO format
         date_time_string = azim_iter_dt.isoformat(sep=' ') # more legible format for printing
@@ -151,6 +159,7 @@ def main():
         deleted += 1
         if not test_run : # delete old, create new
             gcal_service.events().delete(calendarId=google_calendar_id, eventId=existing['id']).execute()
+            time.sleep(anti_flood_s) # avoid flooding Google's API
 
     print(f"Events added: {added}, changed: {changed}, kept: {kept}, deleted: {deleted}")
     print(f"\nFine.\n")
