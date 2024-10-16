@@ -2,8 +2,10 @@ from skyfield.api import Topos, load
 import datetime as dt
 import time
 import google_calendar
+import os
+from datetime import datetime, timedelta
 
-# This program maintains a Google Calendar containing a series of events, within a user-specified span, at daily or
+# This program maintains two Google Calendars containing a series of events, within a user-specified span, at daily and
 # weekly intervals, showing the EoT for each day of interest. 
 #
 # The time of the event is the minute when the sun is overhead the Greenwich meridian (i.e. solar noon at the prime meridian, 12:00 + EoT)
@@ -13,52 +15,58 @@ import google_calendar
 # deleting and reinserting any that are different, and inserting any that are absent.
 # Finally it deletes any resundant existing events that were not kept or changed (e.g. when running for a new quarter, removes old events)
 #
-# to execute a 'from scratch' run, execute with a one-day span (will delete all others), before executing with the desired span.
 
 # NOTE - To ensure latest ephemeris, DELETE de421.bsp (16MB) which forces a download of a more recent version
 # moving from 7-May-2020 to 9-Jan-2021 version changed some EoTs by 3 seconds!!!!
 
-#&&ToDo - check file date of de421.bsp and token.json, if older than 3 months, delete them.
-#&&ToDo - For the desired span, update booth weekly and daily EoT calendars
-#&&ToDo = calculate start and end dates automatically: if in first half of the year, span is 1-Jan-This to 31-Dec-This (just deletes last year!)
-#&&ToDo = calculate start and end dates automatically: if in second half of year, span is 1-Jul-This to 31-Dec-Next
-
-
 # three candidate calendars
 weekly_gmt_eot_calendar_id = "prgqbrj080r4nb1091nsusl978@group.calendar.google.com"
 daily_gmt_eot_calendar_id =  "d81o7gedfsmjakj5qbgp0kobec@group.calendar.google.com"
+
 test_gmt_eot_calendar_id =   "e8fprgrdgm6nbghkihnui26avc@group.calendar.google.com"
+
 anti_flood_s = 1 # delay between API calls to avoid flooding Google's API
 
+# OLD METHOD OF MANUALLY SPECIFYING START AND ENDS:
 # parameters for this run:
-google_calendar_id = weekly_gmt_eot_calendar_id # which calendar to write to
-window_start_dt = dt.datetime(2023,12,31,  12,0,0, tzinfo=dt.timezone.utc) # should be a Sunday for a weekly run
-window_end_dt   = dt.datetime(2024,12,31, 12,0,0, tzinfo=dt.timezone.utc) # inclusive!
-interval_days = 7 # 1 for daily, 7 for weekly
+#google_calendar_id = weekly_gmt_eot_calendar_id # which calendar to write to
+#window_start_dt = dt.datetime(2023,12,31,  12,0,0, tzinfo=dt.timezone.utc) # should be a Sunday for a weekly run
+#window_end_dt   = dt.datetime(2025,12,31, 12,0,0, tzinfo=dt.timezone.utc) # inclusive!
+#interval_days = 7 # 1 for daily, 7 for weekly
 
-google_calendar_id = daily_gmt_eot_calendar_id # which calendar to write to
-window_start_dt = dt.datetime(2024,1,1,  12,0,0, tzinfo=dt.timezone.utc)
-window_end_dt   = dt.datetime(2024,12,31, 12,0,0, tzinfo=dt.timezone.utc) # inclusive!
-interval_days = 1 # 1 for daily, 7 for weekly
+#google_calendar_id = daily_gmt_eot_calendar_id # which calendar to write to
+#window_start_dt = dt.datetime(2024,6,1,  12,0,0, tzinfo=dt.timezone.utc)
+#window_end_dt   = dt.datetime(2025,12,31, 12,0,0, tzinfo=dt.timezone.utc) # inclusive!
+#interval_days = 1 # 1 for daily, 7 for weekly
 
-google_calendar_id = weekly_gmt_eot_calendar_id # which calendar to write to
-window_start_dt = dt.datetime(2023,12,31,  12,0,0, tzinfo=dt.timezone.utc) # should be a Sunday for a weekly run
-window_end_dt   = dt.datetime(2024,12,31, 12,0,0, tzinfo=dt.timezone.utc) # inclusive!
-interval_days = 7 # 1 for daily, 7 for weekly
+#google_calendar_id = weekly_gmt_eot_calendar_id # which calendar to write to
+#window_start_dt = dt.datetime(2023,12,31,  12,0,0, tzinfo=dt.timezone.utc) # should be a Sunday for a weekly run
+#window_end_dt   = dt.datetime(2024,12,31, 12,0,0, tzinfo=dt.timezone.utc) # inclusive!
+#interval_days = 7 # 1 for daily, 7 for weekly
 
 test_run = False # whether to actually write to the Google Calendar or just show the proposals
 pretend = '(Pretend)' if test_run else ''
 
-if interval_days == 7 and window_start_dt.weekday() != 6 :
-    print("SURELY YOU WANT WEEKLY EVENTS ON SUNDAYS, NO?")
-    quit()
-
 # ------------- main function -------------------------------------
 
 def main():
-    global window_start_dt, window_end_dt, ts, sun, north_pole, greenwich, equator
-
     print(f"\nEquation of Time Calendar Generator")
+
+    delete_if_older('token.json', 60) # Google will require reauthentication to create a new token.json
+    delete_if_older('de421.bsp', 60) # skyfield will download a new, up to date, ephemeris
+
+    (start, end) = choose_dates() # start is Sunday before the wnated period (for convenience of weekly calendar)
+    print(f"Calculating between {start} and {end}")
+    print(f"Process Weekly calendar")
+    update_calendar(weekly_gmt_eot_calendar_id, start, end, 7)
+    print(f"Process Daily calendar")
+    update_calendar(daily_gmt_eot_calendar_id, start, end, 1)
+    print(f"\nFine.\n")
+
+# ------------- function, called twice, that does the work  -------------------------------------
+
+def update_calendar(google_calendar_id, window_start_dt, window_end_dt, interval_days):
+    global ts, sun, north_pole, greenwich, equator
 
     # initialise skyfield
     ts = load.timescale(builtin=True)
@@ -133,7 +141,7 @@ def main():
             print(f"{pretend} Creating event: {date_time_string}, EoT: {eot_string}, dec: {dec_string}")
             added += 1
             if not test_run:
-                create_gcal_event(gcal_service, iso_date_time_string, summ, desc)
+                create_gcal_event(google_calendar_id, gcal_service, iso_date_time_string, summ, desc)
                 time.sleep(anti_flood_s) # avoid flooding the Google API
         else:
             existing = existing_event_dates[date_string]
@@ -148,7 +156,7 @@ def main():
                 if not test_run : # delete old, create new
                     gcal_service.events().delete(calendarId=google_calendar_id, eventId=existing['id']).execute()
                     time.sleep(anti_flood_s) # avoid flooding Google's API
-                    create_gcal_event(gcal_service, iso_date_time_string, summ, desc)
+                    create_gcal_event(google_calendar_id, gcal_service, iso_date_time_string, summ, desc)
                     time.sleep(anti_flood_s) # avoid flooding the Google API
     # end of calculate/create loop
 
@@ -162,13 +170,12 @@ def main():
             time.sleep(anti_flood_s) # avoid flooding Google's API
 
     print(f"Events added: {added}, changed: {changed}, kept: {kept}, deleted: {deleted}")
-    print(f"\nFine.\n")
 
 # ------------- skyfield astro functions --------------------------
 
 def time_of_meridian_by_azim(date_dt):  # date_dt is a datetime
     # Andrew Hodgson method, iterating adjustment of the time until sun's azimuth is due south
-    # strictly speaking, this is not EoT at noon, but EoT as the sun passes the meridian
+    # strictly speaking, this is not EoT at clock noon, but EoT as the sun passes the meridian
     eot_at_noon_secs = eot_at_noon(date_dt) # reference, the conventional approach
     eot_secs = eot_at_noon_secs # use this as a very gross starting point
     error_deg = 99 # ensure we go round the loop at least once
@@ -281,7 +288,7 @@ def time_of_meridian_by_transit(date_dt): # date_dt is a datetime
 
 # ------------- google calendar functions --------------------------
 
-def create_gcal_event(service, timedate, summary, description):
+def create_gcal_event(google_calendar_id, service, timedate, summary, description):
     event = {
         'start' : {'dateTime': timedate, 'timeZone' : 'Europe/London'},
         'end' : {'dateTime': timedate, 'timeZone' : 'Europe/London'},
@@ -293,6 +300,38 @@ def create_gcal_event(service, timedate, summary, description):
     }
     new_event = service.events().insert(calendarId=google_calendar_id, body=event).execute()
     print(f"Gcal event created: {event}", file=open('output.tsv', 'a'))
+
+def delete_if_older(file_path, max_age_in_days):
+    if os.path.exists(file_path):
+        file_mod_time = os.path.getmtime(file_path) # Get the file's modification time (in seconds since epoch)
+        # Calculate the date 'days' ago
+        max_ago_date = datetime.now() - timedelta(days=max_age_in_days)
+        if datetime.fromtimestamp(file_mod_time) < max_ago_date:
+            os.remove(file_path)
+            print(f'{file_path} was deleted because it is older than {max_ago_date} days.')
+    else:
+        print(f'{file_path} does not exist.')
+
+def get_previous_sunday(date):
+    days_to_sunday = date.weekday() + 1  # weekday() returns 0 for Monday, 6 for Sunday
+    previous_sunday = date - timedelta(days=days_to_sunday)
+    return previous_sunday
+
+def choose_dates() :
+# looks up today's date and creates two date_times, 'start' and 'end'. All dates are noon on that date. 
+# If today is in the first half of the year, 'start' should be the Sunday before 1 Jan of this year, and 'end' should be 31 Dec of this year 
+# If today is in the second half of the year, 'start' should be the Sunday before 1 Jul this year, and 'end' should be 31 Dec of next year
+    today = datetime.now(dt.timezone.utc)
+    if today.month < 7:  # First half of the year
+        # Start: Sunday before 1 Jan of this year
+        start = get_previous_sunday(datetime(today.year, 1, 1,  12,0,0, tzinfo=dt.timezone.utc))
+        end = datetime(today.year, 12, 31,  12,0,0, tzinfo=dt.timezone.utc)
+    else: # Second half of the year
+        # Start: Sunday before 1 Jul of this year
+        start = get_previous_sunday(datetime(today.year, 7, 1,  12,0,0, tzinfo=dt.timezone.utc))
+        end = datetime(today.year + 1, 12, 31,  12,0,0, tzinfo=dt.timezone.utc)
+    return (start, end)
+
 
 # ------------- main function -------------------------------------
 if __name__ == "__main__":
