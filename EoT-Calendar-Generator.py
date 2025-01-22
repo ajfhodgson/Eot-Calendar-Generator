@@ -16,7 +16,8 @@ from datetime import datetime, timedelta
 # Finally it deletes any resundant existing events that were not kept or changed (e.g. when running for a new quarter, removes old events)
 #
 
-# NOTE - To ensure latest ephemeris, DELETE de421.bsp (16MB) which forces a download of a more recent version
+# NOTE - To ensure latest ephemeris, the program deletes de421.bsp (16MB) if over 60 days old, 
+# which forces a download of a more recent version
 # moving from 7-May-2020 to 9-Jan-2021 version changed some EoTs by 3 seconds!!!!
 
 # three candidate calendars
@@ -24,26 +25,7 @@ weekly_gmt_eot_calendar_id = "prgqbrj080r4nb1091nsusl978@group.calendar.google.c
 daily_gmt_eot_calendar_id =  "d81o7gedfsmjakj5qbgp0kobec@group.calendar.google.com"
 
 test_gmt_eot_calendar_id =   "e8fprgrdgm6nbghkihnui26avc@group.calendar.google.com"
-
-anti_flood_s = 1 # delay between API calls to avoid flooding Google's API
-
-# OLD METHOD OF MANUALLY SPECIFYING START AND ENDS:
-# parameters for this run:
-#google_calendar_id = weekly_gmt_eot_calendar_id # which calendar to write to
-#window_start_dt = dt.datetime(2023,12,31,  12,0,0, tzinfo=dt.timezone.utc) # should be a Sunday for a weekly run
-#window_end_dt   = dt.datetime(2025,12,31, 12,0,0, tzinfo=dt.timezone.utc) # inclusive!
-#interval_days = 7 # 1 for daily, 7 for weekly
-
-#google_calendar_id = daily_gmt_eot_calendar_id # which calendar to write to
-#window_start_dt = dt.datetime(2024,6,1,  12,0,0, tzinfo=dt.timezone.utc)
-#window_end_dt   = dt.datetime(2025,12,31, 12,0,0, tzinfo=dt.timezone.utc) # inclusive!
-#interval_days = 1 # 1 for daily, 7 for weekly
-
-#google_calendar_id = weekly_gmt_eot_calendar_id # which calendar to write to
-#window_start_dt = dt.datetime(2023,12,31,  12,0,0, tzinfo=dt.timezone.utc) # should be a Sunday for a weekly run
-#window_end_dt   = dt.datetime(2024,12,31, 12,0,0, tzinfo=dt.timezone.utc) # inclusive!
-#interval_days = 7 # 1 for daily, 7 for weekly
-
+anti_flood_s = 0.3 # delay between API calls to avoid flooding Google's API
 test_run = False # whether to actually write to the Google Calendar or just show the proposals
 pretend = '(Pretend)' if test_run else ''
 
@@ -55,7 +37,7 @@ def main():
     delete_if_older('token.json', 60) # Google will require reauthentication to create a new token.json
     delete_if_older('de421.bsp', 60) # skyfield will download a new, up to date, ephemeris
 
-    (start, end) = choose_dates() # start is Sunday before the wnated period (for convenience of weekly calendar)
+    (start, end) = choose_dates() # start is Sunday before the wanted period (for convenience of weekly calendar)
     print(f"Calculating between {start} and {end}")
     print(f"Process Weekly calendar")
     update_calendar(weekly_gmt_eot_calendar_id, start, end, 7)
@@ -89,7 +71,7 @@ def update_calendar(google_calendar_id, window_start_dt, window_end_dt, interval
     # get a list of existing google calendar events
     existing_event_dates = {} # list of dates of already in-place entries in the window
     events_result = gcal_service.events().list(
-            calendarId=google_calendar_id, singleEvents=True, orderBy='startTime', maxResults=500).execute()
+            calendarId=google_calendar_id, singleEvents=True, orderBy='startTime', maxResults=1000).execute()
     for event in events_result.get('items', []): # second parameter returns an empty array if nothing to get
         event_zs = event['start'].get('dateTime', event['start'].get('date')) # returns 'datetime' if exists, else 'date'
         digest = {"id": event['id'], "summ": event['summary'], "desc": event['description']}
@@ -318,14 +300,14 @@ def get_previous_sunday(date):
     return previous_sunday
 
 def choose_dates() :
-# looks up today's date and creates two date_times, 'start' and 'end'. All dates are noon on that date. 
-# If today is in the first half of the year, 'start' should be the Sunday before 1 Jan of this year, and 'end' should be 31 Dec of this year 
+# looks up today's date and creates two date_times, 'start' and 'end' for 18 months of data. All dates are noon on that date. 
+# If today is in the first half of the year, 'start' should be the Sunday before 1 Jan of this year, and 'end' should be 30 Jun of next year 
 # If today is in the second half of the year, 'start' should be the Sunday before 1 Jul this year, and 'end' should be 31 Dec of next year
     today = datetime.now(dt.timezone.utc)
     if today.month < 7:  # First half of the year
         # Start: Sunday before 1 Jan of this year
         start = get_previous_sunday(datetime(today.year, 1, 1,  12,0,0, tzinfo=dt.timezone.utc))
-        end = datetime(today.year, 12, 31,  12,0,0, tzinfo=dt.timezone.utc)
+        end = datetime(today.year + 1, 6, 30,  12,0,0, tzinfo=dt.timezone.utc)
     else: # Second half of the year
         # Start: Sunday before 1 Jul of this year
         start = get_previous_sunday(datetime(today.year, 7, 1,  12,0,0, tzinfo=dt.timezone.utc))

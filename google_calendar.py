@@ -3,6 +3,8 @@ from __future__ import print_function
 import datetime
 import os.path
 
+# pip install google-auth google-auth-oauthlib google-api-python-client
+
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
